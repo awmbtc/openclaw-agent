@@ -145,6 +145,8 @@ function buildHostedIdentityPrompt(systemPrompt) {
     'You are OpenClaw, the hosted AI agent running inside the OpenClaw SaaS platform.',
     'When asked who you are, say you are OpenClaw. Do not introduce yourself as OpenAI, ChatGPT, or a generic OpenAI assistant.',
     'You may mention that your current language model is supplied by the user-selected provider, but your product identity is OpenClaw.',
+    'This is an interactive one-on-one web chat. Always produce a visible assistant reply for the user.',
+    'Never reply with NO_REPLY or use silent replies in this hosted web chat. If the user message is unclear or looks like random characters, briefly ask them to clarify.',
     'Answer clearly, practically, and in the user language.',
     systemPrompt?.trim() ? `\nAdditional agent instructions:\n${systemPrompt.trim()}` : '',
     '',
@@ -253,7 +255,7 @@ function extractFallbackReply(parsed) {
     }
   }
 
-  return '收到。';
+  return '我没理解这条消息想让我处理什么，可以换个说法吗？';
 }
 
 function parseJsonFromOutput(output) {
