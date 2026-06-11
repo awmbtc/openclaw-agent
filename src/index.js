@@ -70,6 +70,7 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
   await fs.mkdir(workspaceDir, { recursive: true });
 
   const providerModel = `${llmProvider}/${llmModel}`;
+  const hostedPrompt = buildHostedIdentityPrompt(systemPrompt);
 
   const config = {
     agents: {
@@ -79,10 +80,25 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
           primary: providerModel,
         },
         skipBootstrap: true,
-        contextInjection: 'never',
+        contextInjection: 'always',
+        bootstrapMaxChars: 1200,
+        bootstrapTotalMaxChars: 3200,
         // 禁用心跳等后台任务，专注于单次请求
         heartbeat: { every: '0m' },
       },
+      list: [
+        {
+          id: 'openclaw',
+          default: true,
+          name: 'OpenClaw',
+          workspace: workspaceDir,
+          identity: {
+            name: 'OpenClaw',
+            emoji: '💪',
+            theme: 'Hosted SaaS AI agent runtime',
+          },
+        },
+      ],
     },
     // MVP 聊天先禁用文件/运行时工具，避免模型把目录当文件读取导致 EISDIR
     tools: {
@@ -96,11 +112,23 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
     },
   };
 
-  await ensureWorkspaceFile(workspaceDir, 'AGENTS.md', 'You are OpenClaw. Answer clearly and helpfully.\n');
-  await ensureWorkspaceFile(workspaceDir, 'SOUL.md', systemPrompt || 'Be concise, practical, and helpful.\n');
+  await ensureWorkspaceFile(workspaceDir, 'AGENTS.md', hostedPrompt);
+  await ensureWorkspaceFile(workspaceDir, 'SOUL.md', hostedPrompt);
   await ensureWorkspaceFile(workspaceDir, 'TOOLS.md', 'Tools are disabled for this hosted MVP chat runtime.\n');
   await ensureWorkspaceFile(workspaceDir, 'USER.md', 'User profile is managed by OpenClaw SaaS.\n');
-  await ensureWorkspaceFile(workspaceDir, 'IDENTITY.md', 'OpenClaw hosted agent.\n');
+  await ensureWorkspaceFile(
+    workspaceDir,
+    'IDENTITY.md',
+    [
+      '# IDENTITY.md - Agent Identity',
+      '',
+      '- Name: OpenClaw',
+      '- Emoji: 💪',
+      '- Theme: Hosted SaaS AI agent runtime',
+      '- Vibe: practical, direct, and product-focused',
+      '',
+    ].join('\n')
+  );
   await ensureWorkspaceFile(workspaceDir, 'HEARTBEAT.md', '');
   await ensureWorkspaceFile(workspaceDir, 'BOOTSTRAP.md', '');
   await ensureWorkspaceFile(workspaceDir, 'MEMORY.md', '');
@@ -110,6 +138,17 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
     JSON.stringify(config, null, 2),
     'utf8'
   );
+}
+
+function buildHostedIdentityPrompt(systemPrompt) {
+  return [
+    'You are OpenClaw, the hosted AI agent running inside the OpenClaw SaaS platform.',
+    'When asked who you are, say you are OpenClaw. Do not introduce yourself as OpenAI, ChatGPT, or a generic OpenAI assistant.',
+    'You may mention that your current language model is supplied by the user-selected provider, but your product identity is OpenClaw.',
+    'Answer clearly, practically, and in the user language.',
+    systemPrompt?.trim() ? `\nAdditional agent instructions:\n${systemPrompt.trim()}` : '',
+    '',
+  ].join('\n');
 }
 
 async function ensureWorkspaceFile(workspaceDir, filename, content) {
@@ -150,6 +189,7 @@ function runOpenClaw(message, stateDir, env, userId) {
     const args = [
       'agent',
       '--local',
+      '--agent', 'openclaw',
       '--session-key', String(userId),
       '--message', message,
       '--json',
