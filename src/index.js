@@ -152,6 +152,7 @@ function runOpenClaw(message, stateDir, env, userId) {
       '--local',
       '--session-key', String(userId),
       '--message', message,
+      '--json',
     ];
 
     const proc = execFile('openclaw', args, {
@@ -170,14 +171,77 @@ function runOpenClaw(message, stateDir, env, userId) {
         console.error('[openclaw stderr]', stderr);
         reject(new Error(stderr?.trim() || err.message));
       } else {
-        // 去除 ANSI 颜色码
-        const clean = stdout.replace(/\x1b\[[0-9;]*m/g, '').trim();
-        resolve(clean);
+        resolve(parseOpenClawReply(stdout));
       }
     });
 
     proc.on('error', reject);
   });
+}
+
+function parseOpenClawReply(stdout) {
+  const clean = stripAnsi(stdout).trim();
+  if (!clean) return '';
+
+  const parsed = parseJsonFromOutput(clean);
+  const text = extractPayloadText(parsed);
+  if (text) return text;
+
+  return clean
+    .split(/\r?\n/)
+    .filter((line) => !isInternalOpenClawLine(line))
+    .join('\n')
+    .trim();
+}
+
+function parseJsonFromOutput(output) {
+  try {
+    return JSON.parse(output);
+  } catch {
+    const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (!line.startsWith('{') || !line.endsWith('}')) continue;
+      try {
+        return JSON.parse(line);
+      } catch {
+        // keep scanning older lines
+      }
+    }
+
+    const firstBrace = output.indexOf('{');
+    const lastBrace = output.lastIndexOf('}');
+    if (firstBrace < 0 || lastBrace <= firstBrace) return null;
+    try {
+      return JSON.parse(output.slice(firstBrace, lastBrace + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractPayloadText(parsed) {
+  const payloads = Array.isArray(parsed?.payloads)
+    ? parsed.payloads
+    : parsed?.result?.payloads;
+
+  if (!Array.isArray(payloads)) {
+    return '';
+  }
+
+  return payloads
+    .map((payload) => payload?.text)
+    .filter((item) => typeof item === 'string' && item.trim())
+    .join('\n\n')
+    .trim();
+}
+
+function isInternalOpenClawLine(line) {
+  return /^\s*\[(?:agents\/tool-policy|diagnostic|model-fallback\/decision|tool-policy)\]/i.test(line);
+}
+
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 const PORT = process.env.PORT || 8080;
