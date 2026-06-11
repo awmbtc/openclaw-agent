@@ -34,7 +34,7 @@ app.post('/run', async (req, res) => {
     const env = buildEnv(llmProvider, apiKey);
 
     // 4. 运行 openclaw agent
-    const reply = await runOpenClaw(message, tempDir, env, userId, gatewayAuth);
+    const reply = await runOpenClaw(message, tempDir, env, userId);
 
     // 5. 将更新后的状态（记忆、技能等）同步回 GCS
     await saveState(userId, tempDir);
@@ -109,8 +109,8 @@ function buildEnv(provider, apiKey) {
 
 function createGatewayAuth() {
   return {
+    mode: 'token',
     token: crypto.randomBytes(24).toString('hex'),
-    password: crypto.randomBytes(24).toString('hex'),
   };
 }
 
@@ -118,14 +118,12 @@ function createGatewayAuth() {
  * 以 subprocess 方式运行 openclaw agent
  * OPENCLAW_STATE_DIR 指向该用户的独立临时目录
  */
-function runOpenClaw(message, stateDir, env, userId, gatewayAuth) {
+function runOpenClaw(message, stateDir, env, userId) {
   return new Promise((resolve, reject) => {
     const args = [
       'agent',
       '--session-key', String(userId),
       '--message', message,
-      '--token', gatewayAuth.token,
-      '--password', gatewayAuth.password,
     ];
 
     const proc = execFile('openclaw', args, {
