@@ -226,12 +226,34 @@ function parseOpenClawReply(stdout) {
   const parsed = parseJsonFromOutput(clean);
   const text = extractPayloadText(parsed);
   if (text) return text;
+  if (parsed) return extractFallbackReply(parsed);
 
   return clean
     .split(/\r?\n/)
     .filter((line) => !isInternalOpenClawLine(line))
     .join('\n')
     .trim();
+}
+
+function extractFallbackReply(parsed) {
+  const candidates = [
+    parsed?.finalAssistantVisibleText,
+    parsed?.finalAssistantRawText,
+    parsed?.meta?.finalAssistantVisibleText,
+    parsed?.meta?.finalAssistantRawText,
+    parsed?.result?.finalAssistantVisibleText,
+    parsed?.result?.finalAssistantRawText,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    if (text && text !== 'NO_REPLY') {
+      return text;
+    }
+  }
+
+  return '收到。';
 }
 
 function parseJsonFromOutput(output) {
