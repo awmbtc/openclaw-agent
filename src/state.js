@@ -15,8 +15,12 @@ async function restoreState(userId, localDir) {
     const [files] = await storage.bucket(BUCKET).getFiles({ prefix: `${userId}/` });
     await Promise.all(files.map(async (file) => {
       const rel   = file.name.slice(`${userId}/`.length);
-      if (!rel) return;
-      const dest  = path.join(localDir, rel);
+      if (!rel || rel.endsWith('/')) return;
+      const dest  = safeJoin(localDir, rel);
+      if (!dest) {
+        console.warn(`[state] 跳过异常路径: ${file.name}`);
+        return;
+      }
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await file.download({ destination: dest });
     }));
@@ -32,14 +36,23 @@ async function restoreState(userId, localDir) {
  */
 async function saveState(userId, localDir) {
   const files = await walkDir(localDir);
-  await Promise.all(files.map(async (localPath) => {
+  const outcomes = await Promise.all(files.map(async (localPath) => {
     const rel = path.relative(localDir, localPath);
-    if (rel.includes('.env')) return; // 不存 API Key
-    if (rel === path.join('.openclaw', 'openclaw.json')) return; // 运行时配置每次重建，不持久化临时 gateway 凭据
+    if (rel.includes('.env')) return 'skipped'; // 不存 API Key
+    if (rel === path.join('.openclaw', 'openclaw.json')) return 'skipped'; // 运行时配置每次重建，不持久化临时 gateway 凭据
     const gcsPath = `${userId}/${rel}`;
-    await storage.bucket(BUCKET).upload(localPath, { destination: gcsPath });
+    try {
+      await storage.bucket(BUCKET).upload(localPath, { destination: gcsPath });
+      return 'uploaded';
+    } catch (err) {
+      console.error(`[state] 跳过保存失败 ${rel}: ${err.message}`);
+      return 'failed';
+    }
   }));
-  console.log(`[state] 保存 ${files.length} 个文件 for user ${userId}`);
+  const uploaded = outcomes.filter((item) => item === 'uploaded').length;
+  const skipped = outcomes.filter((item) => item === 'skipped').length;
+  const failed = outcomes.filter((item) => item === 'failed').length;
+  console.log(`[state] 保存 ${uploaded} 个文件 for user ${userId}，跳过 ${skipped}，失败 ${failed}`);
 }
 
 async function walkDir(dir) {
@@ -49,11 +62,22 @@ async function walkDir(dir) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results = results.concat(await walkDir(full));
-    } else {
+    } else if (entry.isFile()) {
       results.push(full);
+    } else {
+      console.warn(`[state] 跳过非普通文件: ${full}`);
     }
   }
   return results;
+}
+
+function safeJoin(root, rel) {
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, rel);
+  if (resolved !== resolvedRoot && !resolved.startsWith(`${resolvedRoot}${path.sep}`)) {
+    return null;
+  }
+  return resolved;
 }
 
 module.exports = { restoreState, saveState };
