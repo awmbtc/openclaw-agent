@@ -112,7 +112,6 @@ function runOpenClaw(message, stateDir, env) {
     const args = [
       'agent',
       '--message', message,
-      '--output-format', 'text',  // 纯文本输出，不含 ANSI 颜色码
     ];
 
     const proc = execFile('openclaw', args, {
@@ -124,11 +123,12 @@ function runOpenClaw(message, stateDir, env) {
       timeout: 55000, // 55s，Cloud Run 默认 60s 超时
     }, (err, stdout, stderr) => {
       if (err) {
-        // 输出 stderr 方便排查
         console.error('[openclaw stderr]', stderr);
         reject(new Error(stderr?.trim() || err.message));
       } else {
-        resolve(stdout.trim());
+        // 去除 ANSI 颜色码
+        const clean = stdout.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        resolve(clean);
       }
     });
 
