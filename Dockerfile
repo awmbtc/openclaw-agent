@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 # 安装 openclaw 框架
 RUN npm install -g openclaw@latest
