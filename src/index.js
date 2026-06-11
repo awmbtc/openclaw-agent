@@ -122,6 +122,7 @@ function runOpenClaw(message, stateDir, env, userId) {
   return new Promise((resolve, reject) => {
     const args = [
       'agent',
+      '--local',
       '--session-key', String(userId),
       '--message', message,
     ];
