@@ -1,6 +1,7 @@
 // OpenClaw Agent 服务 — 使用真实 openclaw 框架（subprocess）
 const express    = require('express');
 const { execFile } = require('child_process');
+const crypto     = require('crypto');
 const fs         = require('fs/promises');
 const path       = require('path');
 const os         = require('os');
@@ -26,13 +27,14 @@ app.post('/run', async (req, res) => {
     await restoreState(userId, tempDir);
 
     // 2. 写入最小配置（模型 + 禁用不必要的 gateway 功能）
-    await writeConfig(tempDir, llmProvider, llmModel, systemPrompt);
+    const gatewayAuth = createGatewayAuth();
+    await writeConfig(tempDir, llmProvider, llmModel, systemPrompt, gatewayAuth);
 
     // 3. 构建环境变量（API Key 注入，不写入磁盘）
     const env = buildEnv(llmProvider, apiKey);
 
     // 4. 运行 openclaw agent
-    const reply = await runOpenClaw(message, tempDir, env, userId);
+    const reply = await runOpenClaw(message, tempDir, env, userId, gatewayAuth);
 
     // 5. 将更新后的状态（记忆、技能等）同步回 GCS
     await saveState(userId, tempDir);
@@ -52,7 +54,7 @@ app.post('/run', async (req, res) => {
  * 写入最小 openclaw.json 配置
  * 每次写入确保模型设置是最新的（用户可能在设置页修改了模型）
  */
-async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt) {
+async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewayAuth) {
   const configDir = path.join(stateDir, '.openclaw');
   await fs.mkdir(configDir, { recursive: true });
 
@@ -69,8 +71,10 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt) {
         heartbeat: { every: '0m' },
       },
     },
-    // 关闭所有 channel（我们不需要 Telegram/Discord 等）
+    // 强制 local gateway，并写入本次请求的一次性凭据，避免 CLI 默认走需配对的 websocket 模式
     gateway: {
+      mode: 'local',
+      auth: gatewayAuth,
       channelHealthCheckMinutes: 0,
     },
   };
@@ -103,16 +107,25 @@ function buildEnv(provider, apiKey) {
   return env;
 }
 
+function createGatewayAuth() {
+  return {
+    token: crypto.randomBytes(24).toString('hex'),
+    password: crypto.randomBytes(24).toString('hex'),
+  };
+}
+
 /**
  * 以 subprocess 方式运行 openclaw agent
  * OPENCLAW_STATE_DIR 指向该用户的独立临时目录
  */
-function runOpenClaw(message, stateDir, env, userId) {
+function runOpenClaw(message, stateDir, env, userId, gatewayAuth) {
   return new Promise((resolve, reject) => {
     const args = [
       'agent',
       '--session-key', String(userId),
       '--message', message,
+      '--token', gatewayAuth.token,
+      '--password', gatewayAuth.password,
     ];
 
     const proc = execFile('openclaw', args, {

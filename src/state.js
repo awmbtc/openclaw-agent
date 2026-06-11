@@ -35,6 +35,7 @@ async function saveState(userId, localDir) {
   await Promise.all(files.map(async (localPath) => {
     const rel = path.relative(localDir, localPath);
     if (rel.includes('.env')) return; // 不存 API Key
+    if (rel === path.join('.openclaw', 'openclaw.json')) return; // 运行时配置每次重建，不持久化临时 gateway 凭据
     const gcsPath = `${userId}/${rel}`;
     await storage.bucket(BUCKET).upload(localPath, { destination: gcsPath });
   }));
