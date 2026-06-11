@@ -56,20 +56,28 @@ app.post('/run', async (req, res) => {
  */
 async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewayAuth) {
   const configDir = path.join(stateDir, '.openclaw');
+  const workspaceDir = path.join(stateDir, 'workspace');
   await fs.mkdir(configDir, { recursive: true });
+  await fs.mkdir(workspaceDir, { recursive: true });
 
   const providerModel = `${llmProvider}/${llmModel}`;
 
   const config = {
     agents: {
       defaults: {
-        workspace: path.join(stateDir, 'workspace'),
+        workspace: workspaceDir,
         model: {
           primary: providerModel,
         },
+        skipBootstrap: true,
+        contextInjection: 'never',
         // 禁用心跳等后台任务，专注于单次请求
         heartbeat: { every: '0m' },
       },
+    },
+    // MVP 聊天先禁用文件/运行时工具，避免模型把目录当文件读取导致 EISDIR
+    tools: {
+      profile: 'minimal',
     },
     // 强制 local gateway，并写入本次请求的一次性凭据，避免 CLI 默认走需配对的 websocket 模式
     gateway: {
@@ -79,22 +87,32 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
     },
   };
 
-  // 如果有自定义 system prompt，写入 SOUL.md
-  if (systemPrompt) {
-    const workspaceDir = path.join(stateDir, 'workspace');
-    await fs.mkdir(workspaceDir, { recursive: true });
-    const soulPath = path.join(workspaceDir, 'SOUL.md');
-    const existing  = await fs.readFile(soulPath, 'utf8').catch(() => null);
-    if (!existing) {
-      await fs.writeFile(soulPath, systemPrompt, 'utf8');
-    }
-  }
+  await ensureWorkspaceFile(workspaceDir, 'AGENTS.md', 'You are OpenClaw. Answer clearly and helpfully.\n');
+  await ensureWorkspaceFile(workspaceDir, 'SOUL.md', systemPrompt || 'Be concise, practical, and helpful.\n');
+  await ensureWorkspaceFile(workspaceDir, 'TOOLS.md', 'Tools are disabled for this hosted MVP chat runtime.\n');
+  await ensureWorkspaceFile(workspaceDir, 'USER.md', 'User profile is managed by OpenClaw SaaS.\n');
+  await ensureWorkspaceFile(workspaceDir, 'IDENTITY.md', 'OpenClaw hosted agent.\n');
+  await ensureWorkspaceFile(workspaceDir, 'HEARTBEAT.md', '');
+  await ensureWorkspaceFile(workspaceDir, 'BOOTSTRAP.md', '');
+  await ensureWorkspaceFile(workspaceDir, 'MEMORY.md', '');
 
   await fs.writeFile(
     path.join(configDir, 'openclaw.json'),
     JSON.stringify(config, null, 2),
     'utf8'
   );
+}
+
+async function ensureWorkspaceFile(workspaceDir, filename, content) {
+  const filePath = path.join(workspaceDir, filename);
+  const existing = await fs.lstat(filePath).catch(() => null);
+  if (existing?.isFile()) {
+    return;
+  }
+  if (existing) {
+    await fs.rm(filePath, { recursive: true, force: true });
+  }
+  await fs.writeFile(filePath, content, 'utf8');
 }
 
 /**
@@ -130,12 +148,16 @@ function runOpenClaw(message, stateDir, env, userId) {
     const proc = execFile('openclaw', args, {
       env: {
         ...env,
-        OPENCLAW_STATE_DIR: path.join(stateDir, '.openclaw'),
-        OPENCLAW_HOME:      stateDir,
+        OPENCLAW_HOME:          stateDir,
+        OPENCLAW_STATE_DIR:     path.join(stateDir, '.openclaw'),
+        OPENCLAW_CONFIG_PATH:   path.join(stateDir, '.openclaw', 'openclaw.json'),
+        OPENCLAW_WORKSPACE_DIR: path.join(stateDir, 'workspace'),
       },
+      cwd: path.join(stateDir, 'workspace'),
       timeout: 55000, // 55s，Cloud Run 默认 60s 超时
     }, (err, stdout, stderr) => {
       if (err) {
+        if (stdout?.trim()) console.error('[openclaw stdout]', stdout);
         console.error('[openclaw stderr]', stderr);
         reject(new Error(stderr?.trim() || err.message));
       } else {
