@@ -112,11 +112,11 @@ async function writeConfig(stateDir, llmProvider, llmModel, systemPrompt, gatewa
     },
   };
 
-  await ensureWorkspaceFile(workspaceDir, 'AGENTS.md', hostedPrompt);
-  await ensureWorkspaceFile(workspaceDir, 'SOUL.md', hostedPrompt);
-  await ensureWorkspaceFile(workspaceDir, 'TOOLS.md', 'Tools are disabled for this hosted MVP chat runtime.\n');
-  await ensureWorkspaceFile(workspaceDir, 'USER.md', 'User profile is managed by OpenClaw SaaS.\n');
-  await ensureWorkspaceFile(
+  await writePlatformWorkspaceFile(workspaceDir, 'AGENTS.md', hostedPrompt);
+  await writePlatformWorkspaceFile(workspaceDir, 'SOUL.md', hostedPrompt);
+  await writePlatformWorkspaceFile(workspaceDir, 'TOOLS.md', 'Tools are disabled for this hosted MVP chat runtime.\n');
+  await writePlatformWorkspaceFile(workspaceDir, 'USER.md', 'User profile is managed by OpenClaw SaaS.\n');
+  await writePlatformWorkspaceFile(
     workspaceDir,
     'IDENTITY.md',
     [
@@ -168,6 +168,15 @@ async function ensureWorkspaceFile(workspaceDir, filename, content) {
     return;
   }
   if (existing) {
+    await fs.rm(filePath, { recursive: true, force: true });
+  }
+  await fs.writeFile(filePath, content, 'utf8');
+}
+
+async function writePlatformWorkspaceFile(workspaceDir, filename, content) {
+  const filePath = path.join(workspaceDir, filename);
+  const existing = await fs.lstat(filePath).catch(() => null);
+  if (existing && !existing.isFile()) {
     await fs.rm(filePath, { recursive: true, force: true });
   }
   await fs.writeFile(filePath, content, 'utf8');
